@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS resources for Athena MCP Server'
+
+Parameters:
+  AthenaOutputBucketName:
+    Type: String
+    Description: 'S3 bucket name for Athena query results'
+    Default: 'athena-query-results'
+  
+  AthenaWorkgroupName:
+    Type: String
+    Description: 'Name of the Athena workgroup to create'
+    Default: 'mcp-workgroup'
+    
+  S3BucketPrefix:
+    Type: String
+    Description: 'Prefix for S3 output location within the bucket'
+    Default: 'queries/'
+    
+  BypassResultConfiguration:
+    Type: String
+    Description: 'Allow queries to use individual output locations, overriding workgroup settings'
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+    
+  EksClusterName:
+    Type: String
+    Description: 'Name of the existing EKS cluster'
+    Default: 'my-eks-cluster'
+
+Resources:
+  # S3 bucket for Athena query results
+  AthenaBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref AthenaOutputBucketName
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldResults
+            Status: Enabled
+            ExpirationInDays: 30
+            Prefix: !Ref S3BucketPrefix
+  
+  # Bucket policy for Athena access
+  AthenaBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref AthenaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: 
+              Service: athena.amazonaws.com
+            Action:
+              - 's3:GetBucketLocation'
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:PutObject'
+              - 's3:ListMultipartUploadParts'
+              - 's3:AbortMultipartUpload'
+            Resource:
+              - !Sub 'arn:aws:s3:::${AthenaBucket}'
+              - !Sub 'arn:aws:s3:::${AthenaBucket}/*'
+  
+  # Athena workgroup
+  AthenaWorkgroup:
+    Type: 'AWS::Athena::WorkGroup'
+    Properties:
+      Name: !Ref AthenaWorkgroupName
+      Description: 'Workgroup for MCP server queries'
+      State: ENABLED
+      WorkGroupConfiguration:
+        BytesScannedCutoffPerQuery: 10737418240  # 10GB
+        EnforceWorkGroupConfiguration: true
+        PublishCloudWatchMetricsEnabled: true
+        RequesterPaysEnabled: false
+        ResultConfiguration:
+          OutputLocation: !Sub 's3://${AthenaBucket}/${S3BucketPrefix}'
+          EncryptionConfiguration:
+            EncryptionOption: SSE_S3
+        EngineVersion:
+          SelectedEngineVersion: 'Athena engine version 3'
+      RecursiveDeleteOption: true
+      Tags:
+        - Key: ManagedBy
+          Value: CloudFormation
+          
+  # IAM role for EKS service account (for use with IRSA)
+  AthenaServiceAccountRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${AthenaWorkgroupName}-eks-sa-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/oidc.eks.${AWS::Region}.amazonaws.com/id/REPLACE_WITH_OIDC_ID'  # Replace this manually
+            Action: 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              StringEquals:
+                'oidc.eks.${AWS::Region}.amazonaws.com/id/REPLACE_WITH_OIDC_ID:sub': 'system:serviceaccount:default:athena-mcp-server'  # Namespace:ServiceAccountName
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonAthenaFullAccess'
+      Path: '/'
+      Tags:
+        - Key: ManagedBy
+          Value: CloudFormation
+  
+  # Additional policy for S3 access
+  S3AccessPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: !Sub '${AthenaWorkgroupName}-s3-access'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+              - 's3:PutObject'
+            Resource:
+              - !Sub 'arn:aws:s3:::${AthenaBucket}'
+              - !Sub 'arn:aws:s3:::${AthenaBucket}/*'
+      Roles:
+        - !Ref AthenaServiceAccountRole
+
+Outputs:
+  S3BucketName:
+    Description: 'S3 bucket for Athena query results'
+    Value: !Ref AthenaBucket
+    
+  S3OutputLocation:
+    Description: 'S3 output location for Athena queries'
+    Value: !Sub 's3://${AthenaBucket}/${S3BucketPrefix}'
+    
+  AthenaWorkgroupName:
+    Description: 'Athena workgroup name'
+    Value: !Ref AthenaWorkgroup
+    
+  ServiceAccountRoleArn:
+    Description: 'IAM role ARN for EKS service account'
+    Value: !GetAtt AthenaServiceAccountRole.Arn
+    
+  EksServiceAccountAnnotation:
+    Description: 'Annotation to add to the Kubernetes service account'
+    Value: !Sub '{"eks.amazonaws.com/role-arn": "${AthenaServiceAccountRole.Arn}"}'
