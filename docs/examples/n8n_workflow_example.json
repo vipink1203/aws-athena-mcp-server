@@ -1,0 +1,231 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# Athena Query Assistant\nAsk me questions about your data in AWS Athena!\n\nExamples:\n- \"How many records do we have in the sales table?\"\n- \"What were our top 10 products by revenue last month?\"\n- \"Show me sales trends by region for the past year\"\n",
+        "height": 255,
+        "width": 400
+      },
+      "id": "b5b9bf9c-8a94-4fdc-8e58-e38d0c21f6a9",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        40,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5a90ad39-6d67-45f1-b3ec-a861c8e60f68",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        40,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "triggerPanel": {
+          "trigger": "form",
+          "formOptions": {
+            "name": "Athena Query Assistant",
+            "clarification": "Ask questions about your data in natural language",
+            "submitText": "Query My Data",
+            "method": "POST",
+            "authentication": "basicAuth",
+            "credentials": "",
+            "anonymityQuestion": "Never store queries",
+            "acceptAnonymousResponses": false,
+            "enableAcceptCookies": false,
+            "privacyNoticeLink": "",
+            "termsOfServiceLink": "",
+            "cookiePolicyLink": "",
+            "theme": "dark",
+            "showProgressBar": true,
+            "textVariables": {}
+          },
+          "formInputs": [
+            {
+              "fieldType": "textArea",
+              "name": "query",
+              "label": "What would you like to know about your data?",
+              "description": "Enter your question in plain language",
+              "placeholder": "e.g., What were our top 10 products by revenue last month?",
+              "required": true,
+              "defaultValue": ""
+            }
+          ]
+        }
+      },
+      "id": "57a07e05-4a29-4bd5-a38b-d5d14c4d4d63",
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        40,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.anthropic.com/v1/messages",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "model",
+              "value": "claude-3-sonnet-20240229"
+            },
+            {
+              "name": "max_tokens",
+              "value": 4096
+            },
+            {
+              "name": "system",
+              "value": "You are an Athena SQL query assistant that helps users query their AWS data. You're connected to an Athena MCP server that provides access to AWS Athena databases and tables. Your job is to understand user questions, formulate SQL queries, execute them, and explain the results.\n\n## Database Information\nDATABASE: analytics\n\n## Table Information\n\nTABLE: sales\nPURPOSE: Contains sales transaction data\nPARTITIONED BY: date\nCOLUMNS:\n- transaction_id (string): Unique identifier for each transaction\n- date (date): Date of the transaction (PARTITIONED)\n- store_id (string): Store identifier\n- product_id (string): Product identifier\n- quantity (int): Number of units sold\n- unit_price (decimal): Price per unit\n- total_amount (decimal): Total transaction amount\n- customer_id (string): Customer identifier if available\n\nTABLE: products\nPURPOSE: Product information and details\nCOLUMNS:\n- product_id (string): Unique product identifier\n- product_name (string): Name of the product\n- category (string): Product category\n- subcategory (string): Product subcategory\n- cost (decimal): Product cost\n- retail_price (decimal): Standard retail price\n\nTABLE: stores\nPURPOSE: Store information\nCOLUMNS:\n- store_id (string): Unique store identifier\n- store_name (string): Name of the store\n- city (string): City\n- state (string): State/Province\n- country (string): Country\n- region (string): Business region\n\n## You have access to the following tools via the MCP server:\n\n1. list_databases() - Lists all available databases in Athena\n2. list_tables(database) - Lists all tables in a specific database\n3. get_table_metadata(table, database) - Gets metadata for a specific table\n4. execute_query(query, database) - Executes an SQL query against Athena\n\n## Guidelines for Writing Queries:\n\n1. Always use partitioned columns in filters when possible (e.g., date)\n2. Use LIMIT to restrict the number of results returned\n3. For date ranges, use ISO format: DATE '2023-01-01'\n4. Use proper joins when querying across tables\n5. Format the results in a clear, readable way\n\nWhen responding to user questions, always:\n1. Formulate an appropriate SQL query\n2. Execute the query using the execute_query tool\n3. Present the results in a clear, readable format\n4. Explain what the results mean in business terms\n5. Suggest follow-up analyses when appropriate"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [\n  {\n    \"role\": \"user\",\n    \"content\": $input.item.json.query\n  }\n] }}"
+            },
+            {
+              "name": "temperature",
+              "value": 0.3
+            },
+            {
+              "name": "tools",
+              "value": "[{\n\t\"name\": \"mcp\",\n\t\"url\": \"http://athena-mcp-server:8050/sse\",\n\t\"connectorId\": \"\",\n\t\"fallbackToInternal\": false\n}]"
+            }
+          ]
+        },
+        "sendBody": true,
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "tools-2024-05-16"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "16b5a76d-b10d-4a35-bffc-26af5213e6a1",
+      "name": "AI Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        300,
+        440
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "33",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Get the AI response\nconst aiResponse = $input.json.data.content[0].text;\n\n// Check if we have a table in the response\nconst hasTable = aiResponse.includes('|') || aiResponse.includes('```');\n\n// Function to convert markdown tables to HTML\nfunction markdownTableToHTML(markdown) {\n  // Basic conversion for demo purposes\n  let html = '<div style=\"font-family: sans-serif;\">';\n  \n  // Convert the markdown response to HTML\n  let parts = markdown.split('```');\n  for (let i = 0; i < parts.length; i++) {\n    if (i % 2 === 0) {\n      // Text outside of code blocks\n      html += '<p>' + parts[i].replace(/\\n/g, '<br>') + '</p>';\n    } else {\n      // Code blocks - check if it's a table\n      if (parts[i].includes('|')) {\n        html += '<div style=\"overflow-x: auto;\"><table style=\"border-collapse: collapse; width: 100%;\">';\n        \n        // Split into lines\n        const lines = parts[i].trim().split('\\n');\n        \n        // Process each line\n        lines.forEach((line, index) => {\n          if (line.includes('|')) {\n            // Skip separator lines (----)\n            if (line.replace(/[\\s\\-|]/g, '') === '') return;\n            \n            const isHeader = index === 0;\n            html += '<tr>';\n            \n            // Split the line into cells\n            const cells = line.split('|').filter(cell => cell.trim().length > 0);\n            \n            cells.forEach(cell => {\n              if (isHeader) {\n                html += `<th style=\"border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f2f2f2;\">${cell.trim()}</th>`;\n              } else {\n                html += `<td style=\"border: 1px solid #ddd; padding: 8px;\">${cell.trim()}</td>`;\n              }\n            });\n            \n            html += '</tr>';\n          }\n        });\n        \n        html += '</table></div>';\n      } else {\n        // Other code block\n        html += '<pre style=\"background-color: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto;\"><code>' + parts[i] + '</code></pre>';\n      }\n    }\n  }\n  \n  html += '</div>';\n  return html;\n}\n\n// Format the output\nreturn {\n  json: {\n    rawResponse: aiResponse,\n    formattedResponse: markdownTableToHTML(aiResponse)\n  }\n};"
+      },
+      "id": "cabc5bdf-a04e-42cc-aef2-aa4a2dfa8cde",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        500,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseMode": "responseNode",
+        "options": {},
+        "responseData": "={{ $json.formattedResponse }}",
+        "responseContentType": "text/html"
+      },
+      "id": "1d06ed9e-3962-44ae-9b57-35a67cbe0b97",
+      "name": "Respond To Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        700,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond To Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "9ddc7dea-8d1d-4e0e-9e2b-fe6d6a2a37e8",
+  "id": "1",
+  "meta": {
+    "instanceId": "0bc62f0e341b9fdfdcfec81ec41056903dadb74ebee05a0af2e8d6ed7b095e6c"
+  },
+  "tags": []
+}
